@@ -44,7 +44,7 @@ public class CompletableFutureExamples {
 
     // 2、运行一个简单的异步阶段
     static void runAsyncExample() {
-        Runnable runnable = () -> {
+        Runnable runAsync = () -> {
             // https://stackoverflow.com/questions/2213340/what-is-a-daemon-thread-in-java
             printTimeAndThread("runAsync");
             assertTrue(Thread.currentThread().isDaemon());
@@ -52,7 +52,7 @@ public class CompletableFutureExamples {
         };
 
         // https://stackoverflow.com/questions/60159153/completablefuture-runasync-vs-supplyasync-when-to-choose-one-over-the-other
-        CompletableFuture<Void> cf = CompletableFuture.runAsync(runnable);
+        CompletableFuture<Void> cf = CompletableFuture.runAsync(runAsync);
         assertFalse(cf.isDone());
         sleepEnough();
         assertTrue(cf.isDone());

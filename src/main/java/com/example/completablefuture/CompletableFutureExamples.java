@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.StringJoiner;
 import java.util.concurrent.*;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -27,8 +28,7 @@ public class CompletableFutureExamples {
 
     public static void main(String[] args) {
         try {
-//            allOfAsyncExample();
-            acceptEitherExample();
+            allOfAsyncExample();
         } finally {
             executor.shutdown();
         }
@@ -197,88 +197,123 @@ public class CompletableFutureExamples {
         assertTrue("Result was empty", result.toString().endsWith("acceptEither"));
     }
 
+    // 12、在两个阶段都执行完后运行一个 Runnable
     static void runAfterBothExample() {
         String original = "Message";
         StringBuilder result = new StringBuilder();
-        CompletableFuture.completedFuture(original).thenApply(String::toUpperCase).runAfterBoth(
-                CompletableFuture.completedFuture(original).thenApply(String::toLowerCase),
-                () -> result.append("done"));
+        // 注意下面所有的阶段都是同步执行的，第一个阶段执行大写转换，第二个阶段执行小写转换。
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApply(String::toUpperCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApply(String::toLowerCase);
+        Runnable runnable = () -> result.append("done");
+
+        cf1.runAfterBoth(cf2, runnable);
+
         assertTrue("Result was empty", result.length() > 0);
+        System.out.println(result);
     }
 
+    // 13、 使用BiConsumer处理两个阶段的结果
     static void thenAcceptBothExample() {
         String original = "Message";
         StringBuilder result = new StringBuilder();
-        CompletableFuture.completedFuture(original).thenApply(String::toUpperCase).thenAcceptBoth(
-                CompletableFuture.completedFuture(original).thenApply(String::toLowerCase),
-                (s1, s2) -> result.append(s1 + s2));
-        assertEquals("MESSAGEmessage", result.toString());
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApply(String::toLowerCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApply(String::toUpperCase);
+
+        BiConsumer<String, String> biConsumer = (s1, s2) -> result.append(s1).append(s2);
+        cf1.thenAcceptBoth(cf2, biConsumer);
+        assertEquals("messageMESSAGE", result.toString());
     }
 
+    // 14、使用BiFunction处理两个阶段的结果
     static void thenCombineExample() {
         String original = "Message";
-        CompletableFuture<String> cf = CompletableFuture.completedFuture(original).thenApply(s -> delayedUpperCase(s))
-                .thenCombine(CompletableFuture.completedFuture(original).thenApply(s -> delayedLowerCase(s)),
-                        (s1, s2) -> s1 + s2);
-        assertEquals("MESSAGEmessage", cf.getNow(null));
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApply(CompletableFutureExamples::delayedLowerCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApply(CompletableFutureExamples::delayedUpperCase);
+        BiFunction<String, String, String> biFunction = (s1, s2) -> s1 + s2;
+
+        CompletableFuture<String> cf = cf1.thenCombine(cf2, biFunction);
+        assertEquals("messageMESSAGE", cf.getNow(null));
     }
 
+    // 15、异步使用BiFunction处理两个阶段的结果
     static void thenCombineAsyncExample() {
         String original = "Message";
-        CompletableFuture<String> cf = CompletableFuture.completedFuture(original)
-                .thenApplyAsync(s -> delayedUpperCase(s))
-                .thenCombine(CompletableFuture.completedFuture(original).thenApplyAsync(s -> delayedLowerCase(s)),
-                        (s1, s2) -> s1 + s2);
-        assertEquals("MESSAGEmessage", cf.join());
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApplyAsync(CompletableFutureExamples::delayedLowerCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApplyAsync(CompletableFutureExamples::delayedUpperCase);
+        BiFunction<String, String, String> biFunction = (s1, s2) -> s1 + s2;
+
+        // 依赖的前两个阶段异步地执行，所以thenCombine()也异步地执行，即使它没有Async后缀。
+        CompletableFuture<String> cf = cf1.thenCombine(cf2, biFunction);
+        assertEquals("messageMESSAGE", cf.join());
     }
 
+    // 16、组合 CompletableFuture
     static void thenComposeExample() {
         String original = "Message";
-        CompletableFuture<String> cf = CompletableFuture.completedFuture(original).thenApply(s -> delayedUpperCase(s))
-                .thenCompose(upper -> CompletableFuture.completedFuture(original).thenApply(s -> delayedLowerCase(s))
-                        .thenApply(s -> upper + s));
-        assertEquals("MESSAGEmessage", cf.join());
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApply(CompletableFutureExamples::delayedLowerCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApply(CompletableFutureExamples::delayedUpperCase);
+
+        // https://stackoverflow.com/questions/43019126/completablefuture-thenapply-vs-thencompose/43025751
+        Function<String, CompletableFuture<String>> function = upper -> cf2.thenApply(s -> upper + s);
+        CompletableFuture<String> cf = cf1.thenCompose(function);
+        assertEquals("messageMESSAGE", cf.join());
     }
 
+    // 17、当几个阶段中的一个完成，创建一个完成的阶段
     static void anyOfExample() {
         StringBuilder result = new StringBuilder();
         List<String> messages = Arrays.asList("a", "b", "c");
-        List<CompletableFuture<String>> futures = messages.stream()
-                .map(msg -> CompletableFuture.completedFuture(msg).thenApply(s -> delayedUpperCase(s)))
-                .collect(Collectors.toList());
-        CompletableFuture.anyOf(futures.toArray(new CompletableFuture[futures.size()])).whenComplete((res, th) -> {
+
+        Function<String, CompletableFuture<String>> function = msg -> CompletableFuture.completedFuture(msg).thenApply(CompletableFutureExamples::delayedUpperCase);
+        BiConsumer<Object, Throwable> biConsumer = (res, th) -> {
             if (th == null) {
                 assertTrue(isUpperCase((String) res));
                 result.append(res);
             }
-        });
+        };
+
+        CompletableFuture.anyOf(messages.stream().map(function).toArray(CompletableFuture[]::new)).whenComplete(biConsumer);
         assertTrue("Result was empty", result.length() > 0);
+        System.out.println(result);
     }
 
+    // 18、当所有的阶段都完成后创建一个阶段
     static void allOfExample() {
         StringBuilder result = new StringBuilder();
         List<String> messages = Arrays.asList("a", "b", "c");
-        List<CompletableFuture<String>> futures = messages.stream()
-                .map(msg -> CompletableFuture.completedFuture(msg).thenApply(s -> delayedUpperCase(s)))
-                .collect(Collectors.toList());
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).whenComplete((v, th) -> {
+
+        // String to CompletableFuture<String>
+        Function<String, CompletableFuture<String>> function = msg -> CompletableFuture.completedFuture(msg).thenApply(CompletableFutureExamples::delayedUpperCase);
+        List<CompletableFuture<String>> futures = messages.stream().map(function).collect(Collectors.toList());
+
+        BiConsumer<Void, Throwable> biConsumer = (v, th) -> {
             futures.forEach(cf -> assertTrue(isUpperCase(cf.getNow(null))));
             result.append("done");
-        });
+        };
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).whenComplete(biConsumer);
+
         assertTrue("Result was empty", result.length() > 0);
+        System.out.println(result);
     }
 
+    // 19、当所有的阶段都完成后异步地创建一个阶段
     static void allOfAsyncExample() {
         StringBuilder result = new StringBuilder();
         List<String> messages = Arrays.asList("a", "b", "c");
-        List<CompletableFuture<String>> futures = messages.stream()
-                .map(msg -> CompletableFuture.completedFuture(msg).thenApplyAsync(s -> delayedUpperCase(s)))
-                .collect(Collectors.toList());
-        CompletableFuture<Void> allOf = CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]))
-                .whenComplete((v, th) -> {
-                    futures.forEach(cf -> assertTrue(isUpperCase(cf.getNow(null))));
-                    result.append("done");
-                });
+
+        // Async: String to CompletableFuture<String>
+        Function<String, CompletableFuture<String>> function = msg -> CompletableFuture.completedFuture(msg).thenApplyAsync(CompletableFutureExamples::delayedUpperCase);
+        List<CompletableFuture<String>> futures = messages.stream().map(function).collect(Collectors.toList());
+
+        BiConsumer<Void, Throwable> biConsumer = (v, th) -> {
+            futures.forEach(cf -> assertTrue(isUpperCase(cf.getNow(null))));
+            result.append("done");
+        };
+
+        CompletableFuture<Void> allOf = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).whenComplete(biConsumer);
+
+        // 使用thenApplyAsync()替换那些单个的CompletableFutures的方法，allOf()会在通用池中的线程中异步地执行。所以我们需要调用join方法等待它完成。
         allOf.join();
         assertTrue("Result was empty", result.length() > 0);
     }

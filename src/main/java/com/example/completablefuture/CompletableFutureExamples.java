@@ -28,7 +28,7 @@ public class CompletableFutureExamples {
     public static void main(String[] args) {
         try {
 //            allOfAsyncExample();
-            completeExceptionallyExample();
+            acceptEitherExample();
         } finally {
             executor.shutdown();
         }
@@ -127,14 +127,14 @@ public class CompletableFutureExamples {
         CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(thenApplyAsync, executor);
 
         BiFunction<String, Throwable, String> biFunction = (s, th) -> (th != null) ? "message upon cancel" : "";
-        // 1、exceptionHandler处理异常, 在异常情况下返回message upon cancel
+        // CompletableFuture提供了三种处理异常的方式，分别是exceptionally、handle和whenComplete方法
         CompletableFuture<String> exceptionHandler = cf.handle(biFunction);
 
-        // 2、completeExceptionally方法使用给定的异常来结束Future
+        // 1. completeExceptionally方法使用给定的异常来结束Future
         cf.completeExceptionally(new RuntimeException("completed exceptionally"));
 
-        // 2.1、断言cf.isCompletedExceptionally()为true, 如果为false则抛出AssertionError, 并输出message作为错误提示信息。
-        //     由于executor需要延迟1秒, 所以thenApplyAsync还未执行完成就以completeExceptionally的方式结束了
+        // 2. 断言cf.isCompletedExceptionally()为true, 如果为false则抛出AssertionError, 并输出message作为错误提示信息。
+        //    由于executor需要延迟1秒, 所以thenApplyAsync还未执行完成就以completeExceptionally的方式结束了
         assertTrue("Was not completed exceptionally", cf.isCompletedExceptionally());
 
         try {
@@ -144,37 +144,55 @@ public class CompletableFutureExamples {
             assertEquals("completed exceptionally", ex.getCause().getMessage());
         }
 
-        // 1.1、exceptionHandler最终的值为："message upon cancel"
+        // exceptionHandler最终的值为："message upon cancel"
         assertEquals("message upon cancel", exceptionHandler.join());
 
     }
 
+    // 9、取消计算
     static void cancelExample() {
-        CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(String::toUpperCase,
-                CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS));
-        CompletableFuture<String> cf2 = cf.exceptionally(throwable -> "canceled message");
+        Function<String, String> thenApplyAsync = String::toUpperCase;
+        // executor是一个delayed executor, 在执行前会延迟一秒。
+        Executor executor = CompletableFuture.delayedExecutor(1, TimeUnit.SECONDS);
+        CompletableFuture<String> cf = CompletableFuture.completedFuture("message").thenApplyAsync(thenApplyAsync, executor);
+
+        // CompletableFuture提供了三种处理异常的方式，分别是exceptionally、handle和whenComplete方法
+        Function<Throwable, String> throwableStringFunction = throwable -> "canceled message";
+        CompletableFuture<String> cf2 = cf.exceptionally(throwableStringFunction);
+
+        // cancel等价于completeExceptionally(new CancellationException())。
         assertTrue("Was not canceled", cf.cancel(true));
         assertTrue("Was not completed exceptionally", cf.isCompletedExceptionally());
         assertEquals("canceled message", cf2.join());
     }
 
+    // 10、在两个完成的阶段其中之一上应用函数
     static void applyToEitherExample() {
         String original = "Message";
-        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original)
-                .thenApplyAsync(s -> delayedUpperCase(s));
-        CompletableFuture<String> cf2 = cf1.applyToEither(
-                CompletableFuture.completedFuture(original).thenApplyAsync(s -> delayedLowerCase(s)),
-                s -> s + " from applyToEither");
-        assertTrue(cf2.join().endsWith(" from applyToEither"));
+        Function<String, String> delayedUpperCase = CompletableFutureExamples::delayedUpperCase;
+        Function<String, String> delayedLowerCase = CompletableFutureExamples::delayedLowerCase;
+        Function<String, String> function = s -> s + " from applyToEither";
+
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApplyAsync(delayedUpperCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApplyAsync(delayedLowerCase);
+        CompletableFuture<String> cf3 = cf1.applyToEither(cf2, function);
+
+        assertTrue(cf3.join().endsWith(" from applyToEither"));
+        System.out.println(cf3.join());
     }
 
+    // 11、在两个完成的阶段其中之一上调用消费函数
     static void acceptEitherExample() {
         String original = "Message";
         StringBuilder result = new StringBuilder();
-        CompletableFuture<Void> cf = CompletableFuture.completedFuture(original)
-                .thenApplyAsync(s -> delayedUpperCase(s))
-                .acceptEither(CompletableFuture.completedFuture(original).thenApplyAsync(s -> delayedLowerCase(s)),
-                        s -> result.append(s).append("acceptEither"));
+        Function<String, String> delayedUpperCase = CompletableFutureExamples::delayedUpperCase;
+        Function<String, String> delayedLowerCase = CompletableFutureExamples::delayedLowerCase;
+        Consumer<String> consumer = s -> result.append(s).append("acceptEither");
+
+        CompletableFuture<String> cf1 = CompletableFuture.completedFuture(original).thenApplyAsync(delayedUpperCase);
+        CompletableFuture<String> cf2 = CompletableFuture.completedFuture(original).thenApplyAsync(delayedLowerCase);
+        CompletableFuture<Void> cf = cf1.acceptEither(cf2, consumer);
+
         cf.join();
         assertTrue("Result was empty", result.toString().endsWith("acceptEither"));
     }

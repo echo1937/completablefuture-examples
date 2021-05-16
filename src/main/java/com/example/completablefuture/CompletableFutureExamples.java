@@ -115,7 +115,9 @@ public class CompletableFutureExamples {
             result.append(s);
         };
         CompletableFuture<Void> cf = CompletableFuture.completedFuture("thenAcceptAsync message").thenAcceptAsync(thenAcceptAsync);
+
         cf.join();
+        // cf是异步的，所以需要cf.join以后才能assertTrue的condition为真
         assertTrue("Result was empty", result.length() > 0);
     }
 

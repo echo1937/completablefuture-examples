@@ -17,6 +17,8 @@ public class RealLifeCompletableFutureExample extends CompletableFutureExample {
         Supplier<List<Car>> supplier = CompletableFutureExample::cars;
 
         Function<List<Car>, CompletableFuture<List<Car>>> thenCompose = cars -> {
+
+            // 通过rating(manufacturerId), 修改Car对象的rating值
             Function<Car, CompletableFuture<Car>> function = car -> {
                 Supplier<Float> supplyAsync = () -> rating(car.manufacturerId);
                 Function<Throwable, Float> exceptionally = th -> -1f;
@@ -27,10 +29,10 @@ public class RealLifeCompletableFutureExample extends CompletableFutureExample {
                 return CompletableFuture.supplyAsync(supplyAsync).exceptionally(exceptionally).thenApply(thenApply);
             };
             // 2、然后我们复合一个CompletionStage填写每个汽车的评分，通过rating(manufacturerId)返回一个CompletionStage, 它会异步地获取汽车的评分(可能又是一个REST API调用)
-            List<CompletionStage<Car>> updatedCars = cars.stream().map(function).collect(Collectors.toList());
+            List<CompletableFuture<Car>> updatedCars = cars.stream().map(function).collect(Collectors.toList());
 
             Function<Void, List<Car>> thenApply = v -> updatedCars.stream()
-                    .map(CompletionStage::toCompletableFuture)
+                    // .map(CompletionStage::toCompletableFuture)
                     .map(CompletableFuture::join)
                     .collect(Collectors.toList());
 
@@ -51,7 +53,7 @@ public class RealLifeCompletableFutureExample extends CompletableFutureExample {
                 .supplyAsync(supplier)
                 .thenCompose(thenCompose)
                 .whenComplete(whenComplete)
-//                .toCompletableFuture()  // toCompletableFuture()返回CompletableFuture本身)
+//                .toCompletableFuture()  // toCompletableFuture()返回CompletableFuture本身
                 .join();
 
         long end = System.currentTimeMillis();
